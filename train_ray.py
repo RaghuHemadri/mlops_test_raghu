@@ -1,6 +1,6 @@
-from datasets import load_dataset
+from datasets import Dataset
 from transformers import AutoTokenizer
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset as TorchDataset, DataLoader
 import lightning as L
 import torch
 import litgpt
@@ -14,6 +14,7 @@ import mlflow
 import mlflow.pytorch
 import os
 import json
+import pandas as pd
 
 # 🔁 New Ray imports
 import ray
@@ -48,17 +49,24 @@ def train_func(config):
     #         json.dump(config, f, indent=2)
     #     mlflow.log_artifact("config.json")
 
-    # Load tokenizer and dataset
+    # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
 
-    # dataset = load_dataset("ruslanmv/ai-medical-dataset")
-    # train_dataset = dataset["train"].select(range(1000))
-    # val_dataset = dataset["train"].select(range(1000, 1500))
-    train_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[:100]")
-    val_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[100:50]")
+    # Load paths from environment
+    train_path = os.getenv("TRAINING_JSON_PATH", "/mnt/object/training.json")
+    val_path = os.getenv("VALIDATION_JSON_PATH", "/mnt/object/validation.json")
+    artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
-    class MedicalQADataset(Dataset):
+    # Load dataset and sample 100
+    df = pd.read_json(train_path)
+    df = df.sample(100, random_state=42).reset_index(drop=True)
+    hf_dataset = Dataset.from_pandas(df)
+    train_dataset = hf_dataset.select(range(80))
+    val_dataset = hf_dataset.select(range(80, 100))
+
+    # PyTorch Dataset
+    class MedicalQADataset(TorchDataset):
         def __init__(self, dataset, tokenizer, max_length=512):
             self.dataset = dataset
             self.tokenizer = tokenizer
@@ -142,9 +150,12 @@ def train_func(config):
     else:
         trainer.fit(model, data_module)
 
-    # ✅ Save final model
+    #  Save final model to object store
+    model_save_path = os.path.join(artifact_dir, "medical-qa-model")
+    os.makedirs(model_save_path, exist_ok=True)
     merge_lora_weights(model.model)
-    torch.save(model.model.state_dict(), "model.pth")
+    torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
+    print(f"Model saved to {model_save_path}/model.pth")
 
 # --------------------------
 # Launch with Ray
@@ -161,13 +172,13 @@ if __name__ == "__main__":
         train_loop_config={
             "model_name": "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
             "lr": 2e-4,
-            "epochs": 3,
+            "epochs": 1,
         },
         run_config=RunConfig(
             name="ray-medical-qa",
-            storage_path="s3://mlflow-artifacts",
-            checkpoint_config=CheckpointConfig(num_to_keep=3),
-            failure_config=FailureConfig(max_failures=2)
+            storage_path="/mnt/object/artifacts/ray-checkpoints",
+            checkpoint_config=CheckpointConfig(num_to_keep=1),
+            failure_config=FailureConfig(max_failures=1)
         ),
         scaling_config=ScalingConfig(
             num_workers=1,
@@ -178,4 +189,3 @@ if __name__ == "__main__":
 
     logging.info("Starting Ray training job...")
     results = trainer.fit()
-
