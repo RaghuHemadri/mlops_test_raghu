@@ -55,8 +55,8 @@ def train_func(config):
     # dataset = load_dataset("ruslanmv/ai-medical-dataset")
     # train_dataset = dataset["train"].select(range(1000))
     # val_dataset = dataset["train"].select(range(1000, 1500))
-    train_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[:500]")
-    val_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[500:750]")
+    train_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[:100]")
+    val_dataset = load_dataset("ruslanmv/ai-medical-dataset", split="train[100:50]")
 
     class MedicalQADataset(Dataset):
         def __init__(self, dataset, tokenizer, max_length=512):
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         },
         run_config=RunConfig(
             name="ray-medical-qa",
-            storage_path="s3://ray",
+            storage_path="s3://mlflow-artifacts",
             checkpoint_config=CheckpointConfig(num_to_keep=3),
             failure_config=FailureConfig(max_failures=2)
         ),
