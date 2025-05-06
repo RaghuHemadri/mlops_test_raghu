@@ -61,9 +61,12 @@ def train_func(config):
     # Load dataset and sample 100
     df = pd.read_json(train_path)
     df = df.sample(100, random_state=42).reset_index(drop=True)
+    print(" First 5 samples from training data:")
+    print(df.head())
     hf_dataset = Dataset.from_pandas(df)
     train_dataset = hf_dataset.select(range(80))
     val_dataset = hf_dataset.select(range(80, 100))
+
 
     # PyTorch Dataset
     class MedicalQADataset(TorchDataset):
@@ -154,7 +157,7 @@ def train_func(config):
     model_save_path = os.path.join(artifact_dir, "medical-qa-model")
     os.makedirs(model_save_path, exist_ok=True)
     merge_lora_weights(model.model)
-    torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
+    torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved to {model_save_path}/model.pth")
 
 # --------------------------
@@ -176,7 +179,7 @@ if __name__ == "__main__":
         },
         run_config=RunConfig(
             name="ray-medical-qa",
-            storage_path="/mnt/object/artifacts/ray-checkpoints",
+            storage_path="s3://mlflow-artifacts",
             checkpoint_config=CheckpointConfig(num_to_keep=1),
             failure_config=FailureConfig(max_failures=1)
         ),
