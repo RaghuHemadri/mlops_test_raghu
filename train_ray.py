@@ -31,19 +31,18 @@ def train_func(config):
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
 
-    split_dir = os.getenv("DATA_SPLIT_ROOT", "/data/data/dataset-split")
+    split_dir = os.getenv("DATA_SPLIT_ROOT", "/mnt/object/data/dataset-split")
     train_path = os.path.join(split_dir, "training", "training.json")
     val_path = os.path.join(split_dir, "validation", "validation.json")
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
-    df = pd.read_json(train_path, lines=True)
-    df = df.sample(100, random_state=42).reset_index(drop=True)
-    print(" First 5 samples from training data:")
-    print(df.head())
+    train_df = pd.read_json(train_path, lines=True)
+    val_df = pd.read_json(val_path, lines=True)
 
-    hf_dataset = Dataset.from_pandas(df)
-    train_dataset = hf_dataset.select(range(80))
-    val_dataset = hf_dataset.select(range(80, 100))
+    print(f"Loaded {len(train_df)} training samples and {len(val_df)} validation samples.")
+
+    train_dataset = Dataset.from_pandas(train_df)
+    val_dataset = Dataset.from_pandas(val_df)
 
     class MedicalQADataset(TorchDataset):
         def __init__(self, dataset, tokenizer, max_length=512):
@@ -128,7 +127,10 @@ def train_func(config):
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved")
+
     model_save_path = os.path.join(artifact_dir, "medical-qa-model")
+    if os.path.exists(model_save_path):
+        os.remove(model_save_path)
     os.makedirs(model_save_path, exist_ok=True)
     torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
     print(f"Model saved to {model_save_path}/model.pth")
