@@ -15,6 +15,9 @@ import mlflow.pytorch
 import os
 import json
 import pandas as pd
+import boto3
+from botocore.client import Config
+import shutil
 
 # 🔁 New Ray imports
 import ray
@@ -157,6 +160,44 @@ def train_func(config):
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved")
+
+    backup_artifacts_from_minio()
+
+
+def backup_artifacts_from_minio():
+    print(" Starting MinIO → Chameleon artifact backup")
+
+    # Set up MinIO client
+    minio_client = boto3.client(
+        "s3",
+        endpoint_url="http://minio:9000",
+        aws_access_key_id="your-access-key",
+        aws_secret_access_key="your-secret-key",
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+
+    bucket_name = "mlflow-artifacts"
+    local_backup_path = os.path.join(os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts"), "mlflow-artifacts-backup")
+
+    os.makedirs(local_backup_path, exist_ok=True)
+
+    # List all artifacts and download
+    response = minio_client.list_objects_v2(Bucket=bucket_name)
+    if "Contents" not in response:
+        print("No artifacts found in MinIO.")
+        return
+
+    for obj in response["Contents"]:
+        key = obj["Key"]
+        target_path = os.path.join(local_backup_path, key)
+
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+        print(f"Downloading {key} → {target_path}")
+        minio_client.download_file(bucket_name, key, target_path)
+
+    print(f" Backup complete! Artifacts saved in {local_backup_path}")
 
 # --------------------------
 # Launch with Ray
