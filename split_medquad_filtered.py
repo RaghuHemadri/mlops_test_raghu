@@ -35,7 +35,7 @@ df_val = df[n_train:n_train + n_val]
 df_test = df[n_train + n_val:]
 
 # Output directory structure
-base_dir = "/data/dataset-split"
+base_dir = "/data/data/dataset-split"
 train_dir = os.path.join(base_dir, "training")
 val_dir = os.path.join(base_dir, "validation")
 test_dir = os.path.join(base_dir, "evaluation")

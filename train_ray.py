@@ -31,7 +31,7 @@ def train_func(config):
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
 
-    split_dir = os.getenv("DATA_SPLIT_ROOT", "/data/dataset-split")
+    split_dir = os.getenv("DATA_SPLIT_ROOT", "/data/data/dataset-split")
     train_path = os.path.join(split_dir, "training", "training.json")
     val_path = os.path.join(split_dir, "validation", "validation.json")
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
