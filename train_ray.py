@@ -160,8 +160,11 @@ def train_func(config):
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved")
-
-    backup_artifacts_from_minio()
+    model_save_path = os.path.join("/mnt/object/artifacts", "medical-qa-model")
+    os.makedirs(model_save_path, exist_ok=True)
+    torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
+    print(f"Model saved to {model_save_path}/model.pth")
+    #backup_artifacts_from_minio()
 
 
 def backup_artifacts_from_minio():
@@ -190,7 +193,7 @@ def backup_artifacts_from_minio():
 
     for obj in response["Contents"]:
         key = obj["Key"]
-        target_path = os.path.join(local_backup_path, key)
+        target_path = os.path.join(local_backup_path, *key.split("/"))
 
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
