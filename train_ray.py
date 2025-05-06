@@ -59,7 +59,7 @@ def train_func(config):
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
     # Load dataset and sample 100
-    df = pd.read_json(train_path)
+    df = pd.read_json(train_path,lines=True)
     df = df.sample(100, random_state=42).reset_index(drop=True)
     print(" First 5 samples from training data:")
     print(df.head())
@@ -79,7 +79,7 @@ def train_func(config):
 
         def __getitem__(self, idx):
             item = self.dataset[idx]
-            prompt = f"Question: {item['question']}\nAnswer: {item['context']}"
+            prompt = f"Question: {item['question']}\nAnswer: {item['answer']}"
             encoding = self.tokenizer(prompt, truncation=True, max_length=self.max_length, padding="max_length", return_tensors="pt")
             input_ids = encoding["input_ids"].squeeze()
             attention_mask = encoding["attention_mask"].squeeze()
@@ -153,12 +153,10 @@ def train_func(config):
     else:
         trainer.fit(model, data_module)
 
-    #  Save final model to object store
-    model_save_path = os.path.join(artifact_dir, "medical-qa-model")
-    os.makedirs(model_save_path, exist_ok=True)
+    #  Save final model 
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
-    print(f"Model saved to {model_save_path}/model.pth")
+    print(f"Model saved")
 
 # --------------------------
 # Launch with Ray

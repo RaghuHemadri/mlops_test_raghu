@@ -152,6 +152,8 @@ services:
             - driver: "nvidia"
               capabilities: ["gpu"]
               device_ids: ["0"]
+    volumes:
+      - /mnt/object:/mnt/object:rw
     environment:
       - AWS_ACCESS_KEY_ID=your-access-key     # for MinIO access
       - AWS_SECRET_ACCESS_KEY=your-secret-key
@@ -175,7 +177,6 @@ services:
       - TRAINING_JSON_PATH=/mnt/object/training.json
       - VALIDATION_JSON_PATH=/mnt/object/validation.json
       - TESTING_JSON_PATH=/mnt/object/testing.json
-      - ARTIFACT_PATH=/mnt/object/artifacts
     depends_on:
       - ray-head
 
