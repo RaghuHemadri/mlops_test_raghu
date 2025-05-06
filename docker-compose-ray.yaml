@@ -174,9 +174,9 @@ services:
       - /mnt/object:/mnt/object:rw
     environment:
       - RAY_ADDRESS=http://ray-head:8265
-      - TRAINING_JSON_PATH=/mnt/object/training.json
-      - VALIDATION_JSON_PATH=/mnt/object/validation.json
-      - TESTING_JSON_PATH=/mnt/object/testing.json
+      - TRAINING_JSON_PATH=/mnt/object/data/dataset-split/training/training.json
+      - VALIDATION_JSON_PATH=/mnt/object/data/dataset-split/validation/validation.json
+      - TESTING_JSON_PATH=/mnt/object/data/dataset-split/evaluation/testing.json
     depends_on:
       - ray-head
 

@@ -1,3 +1,5 @@
+import os
+import pandas as pd
 from datasets import Dataset
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset as TorchDataset, DataLoader
@@ -7,19 +9,13 @@ import litgpt
 from litgpt import LLM
 from litgpt.lora import GPT, merge_lora_weights
 from lightning.pytorch.strategies import DeepSpeedStrategy, FSDPStrategy, DDPStrategy
-from peft import get_peft_model, LoraConfig, TaskType
-# from lightning.pytorch.loggers import MLFlowLogger
 from pytorch_lightning.loggers.mlflow import MLFlowLogger
 import mlflow
 import mlflow.pytorch
-import os
-import json
-import pandas as pd
 import boto3
 from botocore.client import Config
+import json
 import shutil
-
-# 🔁 New Ray imports
 import ray
 from ray.train.torch import TorchTrainer
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig, FailureConfig
@@ -28,50 +24,27 @@ from ray import train
 
 floating_ip = os.getenv("FLOATING_IP", "")
 
-# --------------------------
-# Ray-compatible Train Function
-# --------------------------
 def train_func(config):
     print("Training with config:", config)
-
-    import mlflow
-
-    # Setup mlflow logging
-    # mlflow.set_tracking_uri(f"http://{floating_ip}:8000/")
-    # mlflow.set_experiment("medical-qa-tinyllama")
     mlflow_logger = MLFlowLogger(experiment_name="medical-qa-tinyllama", tracking_uri=f"http://{floating_ip}:8000")
 
-    # # Start MLflow run
-    # with mlflow.start_run():
-    #     # Log config parameters
-    #     for key, value in config.items():
-    #         mlflow.log_param(key, value)
-
-    #     # Log entire config as a JSON artifact
-    #     with open("config.json", "w") as f:
-    #         json.dump(config, f, indent=2)
-    #     mlflow.log_artifact("config.json")
-
-    # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
 
-    # Load paths from environment
-    train_path = os.getenv("TRAINING_JSON_PATH", "/mnt/object/training.json")
-    val_path = os.getenv("VALIDATION_JSON_PATH", "/mnt/object/validation.json")
+    split_dir = os.getenv("DATA_SPLIT_ROOT", "/data/dataset-split")
+    train_path = os.path.join(split_dir, "training", "training.json")
+    val_path = os.path.join(split_dir, "validation", "validation.json")
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
-    # Load dataset and sample 100
-    df = pd.read_json(train_path,lines=True)
+    df = pd.read_json(train_path, lines=True)
     df = df.sample(100, random_state=42).reset_index(drop=True)
     print(" First 5 samples from training data:")
     print(df.head())
+
     hf_dataset = Dataset.from_pandas(df)
     train_dataset = hf_dataset.select(range(80))
     val_dataset = hf_dataset.select(range(80, 100))
 
-
-    # PyTorch Dataset
     class MedicalQADataset(TorchDataset):
         def __init__(self, dataset, tokenizer, max_length=512):
             self.dataset = dataset
@@ -133,8 +106,6 @@ def train_func(config):
             return [optimizer], [scheduler]
 
     model = LitLLM()
-
-    # ⚡ Ray-compatible trainer
     trainer = L.Trainer(
         max_epochs=config["epochs"],
         accelerator="auto",
@@ -145,10 +116,8 @@ def train_func(config):
         log_every_n_steps=5,
         callbacks=[RayTrainReportCallback()],
     )
-
     trainer = prepare_trainer(trainer)
 
-    # 👇 Optional fault-tolerant resume
     ckpt = train.get_checkpoint()
     if ckpt:
         with ckpt.as_directory() as ckpt_dir:
@@ -156,68 +125,26 @@ def train_func(config):
     else:
         trainer.fit(model, data_module)
 
-    #  Save final model 
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved")
-    model_save_path = os.path.join("/mnt/object/artifacts", "medical-qa-model")
+    model_save_path = os.path.join(artifact_dir, "medical-qa-model")
     os.makedirs(model_save_path, exist_ok=True)
     torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
     print(f"Model saved to {model_save_path}/model.pth")
-    #backup_artifacts_from_minio()
 
-
-def backup_artifacts_from_minio():
-    print(" Starting MinIO → Chameleon artifact backup")
-
-    # Set up MinIO client
-    minio_client = boto3.client(
-        "s3",
-        endpoint_url="http://minio:9000",
-        aws_access_key_id="your-access-key",
-        aws_secret_access_key="your-secret-key",
-        config=Config(signature_version="s3v4"),
-        region_name="us-east-1",
-    )
-
-    bucket_name = "mlflow-artifacts"
-    local_backup_path = os.path.join(os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts"), "mlflow-artifacts-backup")
-
-    os.makedirs(local_backup_path, exist_ok=True)
-
-    # List all artifacts and download
-    response = minio_client.list_objects_v2(Bucket=bucket_name)
-    if "Contents" not in response:
-        print("No artifacts found in MinIO.")
-        return
-
-    for obj in response["Contents"]:
-        key = obj["Key"]
-        target_path = os.path.join(local_backup_path, *key.split("/"))
-
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-
-        print(f"Downloading {key} → {target_path}")
-        minio_client.download_file(bucket_name, key, target_path)
-
-    print(f" Backup complete! Artifacts saved in {local_backup_path}")
-
-# --------------------------
-# Launch with Ray
-# --------------------------
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
     logging.info("Connecting to Ray...")
     ray.init(address="auto")
     logging.info("Connected to Ray.")
-
     trainer = TorchTrainer(
         train_loop_per_worker=train_func,
         train_loop_config={
             "model_name": "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
             "lr": 2e-4,
-            "epochs": 1,
+            "epochs": 2,
         },
         run_config=RunConfig(
             name="ray-medical-qa",
@@ -231,6 +158,5 @@ if __name__ == "__main__":
             resources_per_worker={"CPU": 8, "GPU": 1}
         )
     )
-
     logging.info("Starting Ray training job...")
     results = trainer.fit()

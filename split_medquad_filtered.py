@@ -34,13 +34,20 @@ df_train = df[:n_train]
 df_val = df[n_train:n_train + n_val]
 df_test = df[n_train + n_val:]
 
-# Output dir
-out_dir = "/data/medquad-split"
-os.makedirs(out_dir, exist_ok=True)
+# Output directory structure
+base_dir = "/data/dataset-split"
+train_dir = os.path.join(base_dir, "training")
+val_dir = os.path.join(base_dir, "validation")
+test_dir = os.path.join(base_dir, "evaluation")
+
+# Create directories
+os.makedirs(train_dir, exist_ok=True)
+os.makedirs(val_dir, exist_ok=True)
+os.makedirs(test_dir, exist_ok=True)
 
 # Save splits
-df_train.to_json(os.path.join(out_dir, "training.json"), orient="records", lines=True)
-df_val.to_json(os.path.join(out_dir, "validation.json"), orient="records", lines=True)
-df_test.to_json(os.path.join(out_dir, "testing.json"), orient="records", lines=True)
+df_train.to_json(os.path.join(train_dir, "training.json"), orient="records", lines=True)
+df_val.to_json(os.path.join(val_dir, "validation.json"), orient="records", lines=True)
+df_test.to_json(os.path.join(test_dir, "testing.json"), orient="records", lines=True)
 
 print(f"Final split complete — Train: {len(df_train)}, Val: {len(df_val)}, Test: {len(df_test)}")
