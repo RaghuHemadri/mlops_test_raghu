@@ -130,7 +130,7 @@ def train_func(config):
 
     model_save_path = os.path.join(artifact_dir, "medical-qa-model")
     if os.path.exists(model_save_path):
-        os.remove(model_save_path)
+        os.remove(os.path.join(model_save_path, "model.pth"))
     os.makedirs(model_save_path, exist_ok=True)
     torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
     print(f"Model saved to {model_save_path}/model.pth")
