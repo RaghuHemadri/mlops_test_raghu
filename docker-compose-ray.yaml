@@ -20,7 +20,7 @@ services:
       retries: 5
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data:/data  # Use a volume so minio storage persists beyond container lifetype
+      - /mnt/block/minio_data:/data  # Use a volume so minio storage persists beyond container lifetype
 
   # When the minio service has started, launch a container with the minio client
   # and use it to create a bucket named mlflow-artifacts
@@ -51,7 +51,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data  # use a volume so storage persists beyond container lifetype
+      - /mnt/block/postgres_data:/var/lib/postgresql/data  # use a volume so storage persists beyond container lifetype
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.20.2
