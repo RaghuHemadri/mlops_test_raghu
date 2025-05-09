@@ -136,8 +136,6 @@ services:
     depends_on:
       - ray-head
 
-  
-
   ray-worker-1:
     build:
       context: .  # directory where Dockerfile.jupyter-ray is located

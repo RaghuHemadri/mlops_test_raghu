@@ -33,7 +33,7 @@ services:
     user: root
     volumes:
       - medicaldata:/data
-      - ./split_medquad_filtered.py:/split_script.py
+      - ./data_preprocessing.py:/split_script.py
     working_dir: /data
     command:
       - bash
