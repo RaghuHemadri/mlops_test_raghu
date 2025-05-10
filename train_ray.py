@@ -21,6 +21,7 @@ from ray.train.torch import TorchTrainer
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig, FailureConfig
 from ray.train.lightning import RayDDPStrategy, RayLightningEnvironment, prepare_trainer, RayTrainReportCallback
 from ray import train
+from time import time
 
 floating_ip = os.getenv("FLOATING_IP", "")
 
@@ -36,8 +37,8 @@ def train_func(config):
     val_path = os.path.join(split_dir, "validation", "validation.json")
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
-    train_df = pd.read_json(train_path, lines=True)
-    val_df = pd.read_json(val_path, lines=True)
+    train_df = pd.read_json(train_path, lines=True, nrows=500)
+    val_df = pd.read_json(val_path, lines=True, nrows=100)
 
     print(f"Loaded {len(train_df)} training samples and {len(val_df)} validation samples.")
 
@@ -104,12 +105,15 @@ def train_func(config):
             scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda step: min(1.0, step / 10))
             return [optimizer], [scheduler]
 
+    start_time = time()
     model = LitLLM()
     trainer = L.Trainer(
         max_epochs=config["epochs"],
         accelerator="auto",
         devices="auto",
         strategy=RayDDPStrategy(),
+        precision="16-mixed",  # Enable mixed precision
+        accumulate_grad_batches=4,  # Gradient accumulation to simulate larger batch size
         plugins=[RayLightningEnvironment()],
         logger=mlflow_logger,
         log_every_n_steps=5,
@@ -123,17 +127,20 @@ def train_func(config):
             trainer.fit(model, data_module, ckpt_path=os.path.join(ckpt_dir, "checkpoint.ckpt"))
     else:
         trainer.fit(model, data_module)
+    end_time = time()
 
     merge_lora_weights(model.model)
     torch.save(model.model.state_dict(), "model.pth")
     print(f"Model saved")
 
-    model_save_path = os.path.join(artifact_dir, "medical-qa-model")
-    if os.path.exists(model_save_path):
-        os.remove(os.path.join(model_save_path, "model.pth"))
-    os.makedirs(model_save_path, exist_ok=True)
-    torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
-    print(f"Model saved to {model_save_path}/model.pth")
+    if trainer.global_rank == 0:
+        model_save_path = os.path.join(artifact_dir, "medical-qa-model")
+        if os.path.exists(os.path.join(model_save_path, "model.pth")):
+            os.remove(os.path.join(model_save_path, "model.pth"))
+        os.makedirs(model_save_path, exist_ok=True)
+        torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
+        print(f"Model saved to {model_save_path}/model.pth")
+        print(f"Time taken to train: {end_time - start_time} Seconds")
 
 if __name__ == "__main__":
     import logging
@@ -145,7 +152,7 @@ if __name__ == "__main__":
         train_loop_per_worker=train_func,
         train_loop_config={
             "model_name": "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
-            "lr": 2e-4,
+            "lr": 2e-5,
             "epochs": 2,
         },
         run_config=RunConfig(
@@ -155,7 +162,7 @@ if __name__ == "__main__":
             failure_config=FailureConfig(max_failures=1)
         ),
         scaling_config=ScalingConfig(
-            num_workers=1,
+            num_workers=2,
             use_gpu=True,
             resources_per_worker={"CPU": 8, "GPU": 1}
         )
