@@ -24,10 +24,14 @@ from ray import train
 from time import time
 
 floating_ip = os.getenv("FLOATING_IP", "")
+num_workers = 2
 
 def train_func(config):
     print("Training with config:", config)
     mlflow_logger = MLFlowLogger(experiment_name="medical-qa-tinyllama", tracking_uri=f"http://{floating_ip}:8000")
+
+    use_mixed_precision = False
+    accumulate_grad_batches = 4
 
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
@@ -37,8 +41,8 @@ def train_func(config):
     val_path = os.path.join(split_dir, "validation", "validation.json")
     artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
 
-    train_df = pd.read_json(train_path, lines=True, nrows=500)
-    val_df = pd.read_json(val_path, lines=True, nrows=100)
+    train_df = pd.read_json(train_path, lines=True)
+    val_df = pd.read_json(val_path, lines=True)
 
     print(f"Loaded {len(train_df)} training samples and {len(val_df)} validation samples.")
 
@@ -107,19 +111,42 @@ def train_func(config):
 
     start_time = time()
     model = LitLLM()
-    trainer = L.Trainer(
-        max_epochs=config["epochs"],
-        accelerator="auto",
-        devices="auto",
-        strategy=RayDDPStrategy(),
-        precision="16-mixed",  # Enable mixed precision
-        accumulate_grad_batches=4,  # Gradient accumulation to simulate larger batch size
-        plugins=[RayLightningEnvironment()],
-        logger=mlflow_logger,
-        log_every_n_steps=5,
-        callbacks=[RayTrainReportCallback()],
-    )
+
+    if use_mixed_precision:
+        trainer = L.Trainer(
+            max_epochs=config["epochs"],
+            accelerator="auto",
+            devices="auto",
+            strategy=RayDDPStrategy(),
+            precision="16-mixed",  # Enable mixed precision
+            accumulate_grad_batches=accumulate_grad_batches,  # Gradient accumulation to simulate larger batch size
+            plugins=[RayLightningEnvironment()],
+            logger=mlflow_logger,
+            log_every_n_steps=5,
+            callbacks=[RayTrainReportCallback()],
+        )
+    else:
+        trainer = L.Trainer(
+            max_epochs=config["epochs"],
+            accelerator="auto",
+            devices="auto",
+            strategy=DeepSpeedStrategy(),
+            plugins=[RayLightningEnvironment()],
+            logger=mlflow_logger,
+            log_every_n_steps=5,
+            callbacks=[RayTrainReportCallback()],
+        )
+    
     trainer = prepare_trainer(trainer)
+
+    if trainer.global_rank == 0:
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "model_name", config["model_name"])
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "learning_rate", config["lr"])
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "epochs", config["epochs"])
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "batch_size", 8)
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "use_mixed_precision", use_mixed_precision)
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "gradient_accumulation_steps", accumulate_grad_batches)
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "num_gpus", num_workers)
 
     ckpt = train.get_checkpoint()
     if ckpt:
@@ -134,14 +161,15 @@ def train_func(config):
     print(f"Model saved")
 
     if trainer.global_rank == 0:
-        model_save_path = os.path.join(artifact_dir, "medical-qa-model")
-        if os.path.exists(os.path.join(model_save_path, "model.pth")):
-            os.remove(os.path.join(model_save_path, "model.pth"))
-        os.makedirs(model_save_path, exist_ok=True)
-        torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
-        print(f"Model saved to {model_save_path}/model.pth")
-        print(f"Time taken to train: {end_time - start_time} Seconds")
-
+        # model_save_path = os.path.join(artifact_dir, "medical-qa-model")
+        # if os.path.exists(os.path.join(model_save_path, "model.pth")):
+        #     os.remove(os.path.join(model_save_path, "model.pth"))
+        # os.makedirs(model_save_path, exist_ok=True)
+        # torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
+        # print(f"Model saved to {model_save_path}/model.pth")
+        # print(f"Time taken to train: {end_time - start_time} Seconds")
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "run_time", end_time - start_time)
+        
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -162,7 +190,7 @@ if __name__ == "__main__":
             failure_config=FailureConfig(max_failures=1)
         ),
         scaling_config=ScalingConfig(
-            num_workers=2,
+            num_workers=num_workers,
             use_gpu=True,
             resources_per_worker={"CPU": 8, "GPU": 1}
         )
