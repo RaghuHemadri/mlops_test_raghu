@@ -23,48 +23,72 @@ else:
 next_version = last_version + 1
 version_tag = f"v{next_version}"
 
-# Update tracker
+# Update version tracker
 with open(VERSION_FILE, "w") as f:
     f.write(str(next_version))
 
-# Create output and archive version folders
+# Create output and archive directories
 version_dir = os.path.join(TRANSFORMED_DIR, version_tag)
 versioned_archive_dir = os.path.join(ARCHIVE_DIR, version_tag)
 os.makedirs(version_dir, exist_ok=True)
 os.makedirs(versioned_archive_dir, exist_ok=True)
 
-# Step 2: Read & process raw data
+# Step 2: Read and process raw files
 records = []
 archived_files = []
 
+print("Scanning raw data directory...")
 for fname in os.listdir(RAW_DIR):
-    if fname.endswith(".json"):
-        file_path = os.path.join(RAW_DIR, fname)
-        try:
-            with open(file_path, "r") as f:
-                records.extend(json.load(f))
-                archived_files.append(fname)
-        except json.JSONDecodeError as e:
-            print(f"Skipping invalid JSON file {fname}: {e}")
+    file_path = os.path.join(RAW_DIR, fname)
 
-        # Move file to archive after reading
+    # Skip non-JSON files
+    if not fname.endswith(".json"):
+        print(f"Skipping non-JSON file: {fname}")
+        continue
+
+    print(f"Found file: {fname}")
+    try:
+        with open(file_path, "r") as f:
+            try:
+                # Try JSON array
+                data = json.load(f)
+                if isinstance(data, list):
+                    records.extend(data)
+                else:
+                    print(f"Warning: Skipping {fname} (not a JSON list)")
+                    continue
+            except json.JSONDecodeError:
+                # Try JSONL
+                print(f"Falling back to JSONL for {fname}")
+                f.seek(0)
+                for line in f:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        print(f"Skipping bad line in {fname}: {e}")
+
+        # Move processed file to archive
+        archived_files.append(fname)
         shutil.move(file_path, os.path.join(versioned_archive_dir, fname))
 
+    except Exception as e:
+        print(f"Failed to process {fname}: {e}")
+
 if not records:
-    print("No new retraining data to process.")
+    print("No new valid retraining data to process.")
     exit(0)
 
-# Step 3: Clean the data
+# Step 3: Clean the DataFrame
 df = pd.DataFrame(records)
 df = df.dropna(subset=["question", "answer"])
 df = df[~df["question"].str.strip().eq("")]
 df = df[~df["answer"].str.strip().eq("")]
 df = df.drop(columns=["symptoms", "timestamp"], errors="ignore")
 
-# Step 4: Save transformed data
-data_out_path = os.path.join(version_dir, "retraining_data.json")
-df.to_json(data_out_path, orient="records", lines=True)
-print(f"Saved cleaned data to: {data_out_path}")
+# Step 4: Save cleaned data
+output_path = os.path.join(version_dir, "retraining_data.json")
+df.to_json(output_path, orient="records", lines=True)
+print(f"Saved cleaned data to: {output_path}")
 
 # Step 5: Write metadata
 metadata = {

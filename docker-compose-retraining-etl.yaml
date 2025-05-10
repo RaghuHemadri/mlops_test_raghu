@@ -1,4 +1,3 @@
-version: '3'
 services:
   transform-retraining-data:
     container_name: etl_transform_retraining
