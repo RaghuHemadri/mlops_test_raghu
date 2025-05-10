@@ -154,6 +154,28 @@ services:
     shm_size: '12g'
     depends_on:
       - ray-head
+
+  ray-worker-2:
+    build:
+      context: .  # directory where Dockerfile.jupyter-ray is located
+      dockerfile: Dockerfile.ray-worker
+    container_name: ray-worker-2
+    command: >
+      ray start --address=ray-head:6379 --num-cpus=32 --num-gpus=1 --block
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: "nvidia"
+              capabilities: ["gpu"]
+              device_ids: ["1"]
+    environment:
+      - AWS_ACCESS_KEY_ID=your-access-key     # for MinIO access
+      - AWS_SECRET_ACCESS_KEY=your-secret-key
+      - AWS_ENDPOINT_URL=http://minio:9000
+    shm_size: '12g'
+    depends_on:
+      - ray-head
     
   jupyter:
     build:
