@@ -1,22 +1,19 @@
 import os
 import pandas as pd
+import json
+import shutil
+import torch
+import lightning as L
 from datasets import Dataset
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset as TorchDataset, DataLoader
-import lightning as L
-import torch
+from lightning.pytorch.strategies import DeepSpeedStrategy
+from lightning.pytorch.loggers.mlflow import MLFlowLogger
+import mlflow
+import mlflow.pytorch
 import litgpt
 from litgpt import LLM
 from litgpt.lora import GPT, merge_lora_weights
-from lightning.pytorch.strategies import DeepSpeedStrategy, FSDPStrategy, DDPStrategy
-from pytorch_lightning.loggers.mlflow import MLFlowLogger
-import mlflow
-import mlflow.pytorch
-import boto3
-from botocore.client import Config
-import json
-import shutil
-import ray
 from ray.train.torch import TorchTrainer
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig, FailureConfig
 from ray.train.lightning import RayDDPStrategy, RayLightningEnvironment, prepare_trainer, RayTrainReportCallback
@@ -25,6 +22,18 @@ from time import time
 
 floating_ip = os.getenv("FLOATING_IP", "129.114.25.221")
 num_workers = 2
+
+def get_latest_versioned_data_path(base_dir="/mnt/object/data/production/retraining_data_transformed"):
+    version_file = os.path.join(base_dir, "version_tracker.txt")
+    if not os.path.exists(version_file):
+        raise FileNotFoundError(f"version_tracker.txt not found in {base_dir}")
+    with open(version_file, "r") as f:
+        last_version = f.read().strip()
+    version_dir = f"v{last_version}"
+    data_path = os.path.join(base_dir, version_dir, "retraining_data.json")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Expected data file not found: {data_path}")
+    return data_path, version_dir
 
 def train_func(config):
     print("Training with config:", config)
@@ -36,15 +45,17 @@ def train_func(config):
     tokenizer = AutoTokenizer.from_pretrained(config["model_name"])
     tokenizer.pad_token = tokenizer.eos_token
 
-    split_dir = os.getenv("DATA_SPLIT_ROOT", "/mnt/object/data/dataset-split")
-    train_path = os.path.join(split_dir, "training", "training.json")
-    val_path = os.path.join(split_dir, "validation", "validation.json")
-    artifact_dir = os.getenv("ARTIFACT_PATH", "/mnt/object/artifacts")
+    # Load latest retraining data
+    data_path, version_tag = get_latest_versioned_data_path()
+    df = pd.read_json(data_path, lines=True)
 
-    train_df = pd.read_json(train_path, lines=True)
-    val_df = pd.read_json(val_path, lines=True)
+    # Split 80/20
+    n = len(df)
+    n_train, n_val = int(n * 0.8), int(n * 0.2)
+    train_df = df[:n_train].reset_index(drop=True)
+    val_df = df[n_train:].reset_index(drop=True)
 
-    print(f"Loaded {len(train_df)} training samples and {len(val_df)} validation samples.")
+    print(f"Loaded {len(train_df)} training samples and {len(val_df)} validation samples from {version_tag}")
 
     train_dataset = Dataset.from_pandas(train_df)
     val_dataset = Dataset.from_pandas(val_df)
@@ -112,31 +123,17 @@ def train_func(config):
     start_time = time()
     model = LitLLM()
 
-    if use_mixed_precision:
-        trainer = L.Trainer(
-            max_epochs=config["epochs"],
-            accelerator="auto",
-            devices="auto",
-            strategy=RayDDPStrategy(),
-            precision="16-mixed",  # Enable mixed precision
-            accumulate_grad_batches=accumulate_grad_batches,  # Gradient accumulation to simulate larger batch size
-            plugins=[RayLightningEnvironment()],
-            logger=mlflow_logger,
-            log_every_n_steps=5,
-            callbacks=[RayTrainReportCallback()],
-        )
-    else:
-        trainer = L.Trainer(
-            max_epochs=config["epochs"],
-            accelerator="auto",
-            devices="auto",
-            strategy=DeepSpeedStrategy(),
-            plugins=[RayLightningEnvironment()],
-            logger=mlflow_logger,
-            log_every_n_steps=5,
-            callbacks=[RayTrainReportCallback()],
-        )
-    
+    trainer = L.Trainer(
+        max_epochs=config["epochs"],
+        accelerator="auto",
+        devices="auto",
+        strategy=DeepSpeedStrategy(),
+        plugins=[RayLightningEnvironment()],
+        logger=mlflow_logger,
+        log_every_n_steps=5,
+        callbacks=[RayTrainReportCallback()],
+    )
+
     trainer = prepare_trainer(trainer)
 
     if trainer.global_rank == 0:
@@ -147,6 +144,7 @@ def train_func(config):
         mlflow_logger.experiment.log_param(mlflow_logger.run_id, "use_mixed_precision", use_mixed_precision)
         mlflow_logger.experiment.log_param(mlflow_logger.run_id, "gradient_accumulation_steps", accumulate_grad_batches)
         mlflow_logger.experiment.log_param(mlflow_logger.run_id, "num_gpus", num_workers)
+        mlflow_logger.experiment.log_param(mlflow_logger.run_id, "retraining_version", version_tag)
 
     ckpt = train.get_checkpoint()
     if ckpt:
@@ -161,15 +159,8 @@ def train_func(config):
     print(f"Model saved")
 
     if trainer.global_rank == 0:
-        # model_save_path = os.path.join(artifact_dir, "medical-qa-model")
-        # if os.path.exists(os.path.join(model_save_path, "model.pth")):
-        #     os.remove(os.path.join(model_save_path, "model.pth"))
-        # os.makedirs(model_save_path, exist_ok=True)
-        # torch.save(model.model.state_dict(), os.path.join(model_save_path, "model.pth"))
-        # print(f"Model saved to {model_save_path}/model.pth")
-        # print(f"Time taken to train: {end_time - start_time} Seconds")
         mlflow_logger.experiment.log_param(mlflow_logger.run_id, "run_time", end_time - start_time)
-        
+
 if __name__ == "__main__":
     import logging
     logging.basicConfig(level=logging.INFO)
