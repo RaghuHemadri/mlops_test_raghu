@@ -3,7 +3,7 @@ volumes:
   medicaldata:
 
 services:
-    extract-data:
+  extract-data:
     container_name: etl_extract_medquad
     image: python:3.11
     user: root
@@ -21,7 +21,7 @@ services:
         python3 -c '
         from datasets import load_dataset
         ds = load_dataset("lavita/MedQuAD")
-        ds.save_to_disk("/data/data/raw-dataset")
+        ds.save_to_disk("/data/medquad-raw")
         '
 
         echo "Extract stage complete. Contents:"
@@ -54,8 +54,8 @@ services:
     volumes:
       - medicaldata:/data
       - ~/.config/rclone/rclone.conf:/root/.config/rclone/rclone.conf:ro
-    entrypoint: /bin/sh
-    command:
+    entrypoint:
+      - /bin/sh
       - -c
       - |
         if [ -z "$RCLONE_CONTAINER" ]; then
@@ -68,3 +68,4 @@ services:
 
         echo "Upload complete. Listing uploaded files:"
         rclone ls chi_tacc:$RCLONE_CONTAINER
+
