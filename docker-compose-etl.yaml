@@ -3,7 +3,7 @@ volumes:
   medicaldata:
 
 services:
-  extract-data:
+    extract-data:
     container_name: etl_extract_medquad
     image: python:3.11
     user: root
@@ -21,7 +21,7 @@ services:
         python3 -c '
         from datasets import load_dataset
         ds = load_dataset("lavita/MedQuAD")
-        ds.save_to_disk("/data/medquad-raw")
+        ds.save_to_disk("/data/data/raw-dataset")
         '
 
         echo "Extract stage complete. Contents:"

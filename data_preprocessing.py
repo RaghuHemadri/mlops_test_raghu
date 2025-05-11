@@ -1,14 +1,22 @@
 import os
 import pandas as pd
 from datasets import load_from_disk
+import json 
 
 # Load MedQuAD from saved Arrow format
-ds = load_from_disk("/data/medquad-raw")
+ds = load_from_disk("/data/data/raw-dataset")
 df = ds["train"].to_pandas()
 
 # Keep only required columns
 cols = ["synonyms", "question_type", "question", "question_focus", "answer"]
 df = df[cols]
+
+# Missing/blank stats before cleaning
+n_initial = len(df)
+n_missing_question = df["question"].isnull().sum()
+n_missing_answer = df["answer"].isnull().sum()
+n_blank_question = df["question"].dropna().str.strip().eq("").sum()
+n_blank_answer = df["answer"].dropna().str.strip().eq("").sum()
 
 # Drop rows with missing or empty question/answer
 df = df.dropna(subset=["question", "answer"])
@@ -62,6 +70,28 @@ for i in range(num_production_sets):
     prod_dir = os.path.join(base_dir, f"production/batch_{i+1}")
     os.makedirs(prod_dir, exist_ok=True)
     df_prod.to_json(os.path.join(prod_dir, f"prod_batch_{i+1}.json"), orient="records", lines=True)
+
+# Save metadata
+metadata = {
+    "source": "raw-dataset",
+    "initial_records": int(n_initial),
+    "final_records": len(df),
+    "split_counts": {
+        "training": len(df_train),
+        "validation": len(df_val),
+        "testing": len(df_test)
+    },
+    "dropped": {
+        "missing_question": int(n_missing_question),
+        "missing_answer": int(n_missing_answer),
+        "blank_question": int(n_blank_question),
+        "blank_answer": int(n_blank_answer),
+        "total_dropped": int(n_missing_question + n_missing_answer + n_blank_question + n_blank_answer)
+    }
+}
+
+with open(os.path.join(base_dir, "metadata.json"), "w") as f:
+    json.dump(metadata, f, indent=2)
 
 print(f"Final split complete — Train: {len(df_train)}, Val: {len(df_val)}, Eval: {len(df_test)}")
 print(f"Production sets created: {num_production_sets}")
