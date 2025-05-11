@@ -50,4 +50,18 @@ df_train.to_json(os.path.join(train_dir, "training.json"), orient="records", lin
 df_val.to_json(os.path.join(val_dir, "validation.json"), orient="records", lines=True)
 df_test.to_json(os.path.join(test_dir, "testing.json"), orient="records", lines=True)
 
-print(f"Final split complete — Train: {len(df_train)}, Val: {len(df_val)}, Test: {len(df_test)}")
+# Split evaluation into multiple production sets
+num_production_sets = 3
+prod_split_size = len(df_test) // num_production_sets
+
+for i in range(num_production_sets):
+    start = i * prod_split_size
+    end = None if i == num_production_sets - 1 else (i + 1) * prod_split_size
+    df_prod = df_test[start:end]
+
+    prod_dir = os.path.join(base_dir, f"production/batch_{i+1}")
+    os.makedirs(prod_dir, exist_ok=True)
+    df_prod.to_json(os.path.join(prod_dir, f"prod_batch_{i+1}.json"), orient="records", lines=True)
+
+print(f"Final split complete — Train: {len(df_train)}, Val: {len(df_val)}, Eval: {len(df_test)}")
+print(f"Production sets created: {num_production_sets}")
