@@ -1,4 +1,4 @@
-name: persist_block
+name: persist_data
 services:
   minio:
     image: minio/minio
@@ -90,3 +90,17 @@ services:
       - ./workspace:/home/jovyan/work/
     command: >
       bash -c "python3 -m pip install mlflow && start-notebook.sh"
+
+  # dashboard:
+  #   build:
+  #     context: ./dashboard  # assumes Dockerfile and dashboard.py are here
+  #   container_name: dashboard
+  #   ports:
+  #     - "8501:8501"
+  #   volumes:
+  #     - /mnt/object/data:/mnt/object/data:ro
+  #   depends_on:
+  #     - minio
+  #   environment:
+  #     - PYTHONUNBUFFERED=1
+
