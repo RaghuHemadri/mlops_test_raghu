@@ -7,7 +7,7 @@ import plotly.express as px
 st.set_page_config(page_title="MedQA Dashboard", layout="wide")
 st.title("📊 MedQA Data Dashboard")
 
-OFFLINE_DIR = "/mnt/object/data/production/dataset-split"
+OFFLINE_DIR = "/mnt/object/data/dataset-split"
 RETRAIN_DIR = "/mnt/object/data/production/retraining_data_transformed"
 
 tab1, tab2 = st.tabs(["📂 Offline MedQuAD Data", "🔁 Retraining Data"])
