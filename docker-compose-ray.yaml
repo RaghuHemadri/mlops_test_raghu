@@ -20,7 +20,7 @@ services:
       retries: 5
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data:/data  # Use a volume so minio storage persists beyond container lifetype
+      - /mnt/object/artifacts/minio_data:/data
 
   # When the minio service has started, launch a container with the minio client
   # and use it to create a bucket named mlflow-artifacts
@@ -192,7 +192,7 @@ services:
     ports:
       - "8888:8888"
     volumes:
-      - ./workspace:/home/jovyan/work
+      - ./workspace:/home/jovyan/work:rw
       - /mnt/object:/mnt/object:rw
     environment:
       - RAY_ADDRESS=http://ray-head:8265
@@ -208,4 +208,3 @@ volumes:
   ray_tmp:
   postgres_data:
   workspace:
-  minio_data:
